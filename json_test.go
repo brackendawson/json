@@ -3,11 +3,14 @@ package json
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"testing"
 
 	"github.com/intel-go/fastjson"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecode(t *testing.T) {
@@ -128,6 +131,53 @@ func BenchmarkDecodeString(b *testing.B) {
 	}
 }
 
+func TestDecodeEscapeReadError(t *testing.T) {
+	tests := map[string]struct {
+		prefix []byte
+		err    error
+	}{
+		"fist read": {
+			prefix: []byte(``),
+			err:    errors.New("lol"),
+		},
+		"read string": {
+			prefix: []byte(`"`),
+			err:    errors.New("lol"),
+		},
+		"unescape": {
+			prefix: []byte(`"\`),
+			err:    errors.New("lol"),
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			primeMock := func(r *mockReader) {
+				r.Test(t)
+				t.Cleanup(func() { r.AssertExpectations(t) })
+				for _, b := range tt.prefix {
+					func(b byte) {
+						r.On("Read", mock.Anything).Run(func(args mock.Arguments) {
+							p := args.Get(0).([]byte)
+							require.GreaterOrEqual(t, len(p), 1)
+							p[0] = b
+						}).Return(1, nil).Once()
+					}(b)
+				}
+				r.On("Read", mock.Anything).Return(0, tt.err).Once()
+			}
+			r := &mockReader{}
+			s := ""
+			primeMock(r)
+			errJ := json.NewDecoder(r).Decode(&s)
+			r = &mockReader{}
+			primeMock(r)
+			err := NewDecoder(r).Decode(&s)
+			eqaulError(t, errJ, err)
+		})
+	}
+}
+
 func eqaulError(t *testing.T, expected, err error) {
 	switch expected := expected.(type) {
 	case *json.SyntaxError:
@@ -155,4 +205,13 @@ func eqaulError(t *testing.T, expected, err error) {
 		assert.Equal(t, expected, err)
 		t.Logf("Error types: %T, %T", expected, err)
 	}
+}
+
+type mockReader struct {
+	mock.Mock
+}
+
+func (m *mockReader) Read(b []byte) (int, error) {
+	args := m.Called(b)
+	return args.Int(0), args.Error(1)
 }
