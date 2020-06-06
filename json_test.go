@@ -63,22 +63,27 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func eqaulError(t *testing.T, expected, err error) {
-	switch expected := expected.(type) {
-	case *json.SyntaxError:
-		assert.EqualError(t, err, expected.Error())
-		if err2, ok := err.(*SyntaxError); ok {
-			assert.Equal(t, expected.Offset, err2.Offset)
-		} else {
-			t.Errorf("Incorrect error type %T, expected *SyntaxError: %s", err, err)
-		}
-	default:
-		assert.Equal(t, expected, err)
-		t.Logf("Error types: %T, %T", expected, err)
+func TestDecodeStringToTypes(t *testing.T) {
+	testJSON := []byte(`"test"`)
+	tests := map[string]interface{}{
+		"*interface{}": func() *interface{} { var i interface{}; return &i },
+		"interface{}":  func() interface{} { var i interface{}; return i },
+		"*string":      func() *string { s := ""; return &s }(),
+		"string":       "",
+		"*int":         func() *int { i := 0; return &i }(),
+		"int":          0,
+		"nil":          nil,
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			errJ := json.NewDecoder(bytes.NewBuffer(testJSON)).Decode(tt)
+			err := NewDecoder(bytes.NewBuffer(testJSON)).Decode(tt)
+			eqaulError(t, errJ, err)
+		})
 	}
 }
 
-// TODO pass a non-pointer to Decode
+// TODO decode into non pointer type
 
 // TODO test the invalid UTF8 sequences here to lock in behaviour
 
@@ -120,5 +125,34 @@ func BenchmarkDecodeString(b *testing.B) {
 				}
 			})
 		})
+	}
+}
+
+func eqaulError(t *testing.T, expected, err error) {
+	switch expected := expected.(type) {
+	case *json.SyntaxError:
+		assert.EqualError(t, err, expected.Error())
+		if err2, ok := err.(*SyntaxError); ok {
+			assert.Equal(t, expected.Offset, err2.Offset)
+		} else {
+			t.Errorf("Incorrect error type %T, expected *SyntaxError: %s", err, err)
+		}
+	case *json.InvalidUnmarshalError:
+		assert.EqualError(t, err, expected.Error())
+		if err2, ok := err.(*InvalidUnmarshalError); ok {
+			assert.Equal(t, expected.Type, err2.Type)
+		} else {
+			t.Errorf("Incorrect error type %T, expected *InvalidUnmarshalError: %s", err, err)
+		}
+	case *json.UnmarshalTypeError:
+		assert.EqualError(t, err, expected.Error())
+		if err2, ok := err.(*UnmarshalTypeError); ok {
+			assert.Equal(t, expected.Type, err2.Type)
+		} else {
+			t.Errorf("Incorrect error type %T, expected *UnmarshalTypeError: %s", err, err)
+		}
+	default:
+		assert.Equal(t, expected, err)
+		t.Logf("Error types: %T, %T", expected, err)
 	}
 }

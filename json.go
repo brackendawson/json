@@ -50,6 +50,29 @@ func (s *SyntaxError) Error() string {
 
 // TODO Is()?
 
+type InvalidUnmarshalError struct {
+	Type reflect.Type
+}
+
+func (i *InvalidUnmarshalError) Error() string {
+	if i.Type == nil {
+		return "json: Unmarshal(nil)"
+	}
+	return "json: Unmarshal(non-pointer " + i.Type.String() + ")"
+}
+
+type UnmarshalTypeError struct {
+	Value  string
+	Type   reflect.Type
+	Offset int64
+	Struct string
+	Field  string
+}
+
+func (u *UnmarshalTypeError) Error() string {
+	return "json: cannot unmarshal " + u.Value + " into Go value of type " + u.Type.String()
+}
+
 type Decoder struct {
 	in     *bufio.Reader
 	offset int64
@@ -63,26 +86,24 @@ func NewDecoder(r io.Reader) *Decoder {
 
 func (d *Decoder) Decode(v interface{}) error {
 	var (
-		rv        = reflect.ValueOf(v)
-		c         byte
-		err       error
-		expectEOF = false
+		vv  = reflect.ValueOf(v)
+		c   byte
+		err error
 	)
+	if vv.Kind() != reflect.Ptr || vv.IsNil() {
+		return &InvalidUnmarshalError{reflect.TypeOf(v)}
+	}
 	for {
 		c, err = d.readByte()
 		switch {
 		case err != nil:
-			if expectEOF && err == io.EOF {
-				return nil
-			}
 			return err
 		case c == byte('"'):
-			return d.readString(rv)
+			return d.readString(vv)
 		case whitespace[c]:
 		default:
 			return d.syntaxErrorf("invalid character %q looking for beginning of value", c)
 		}
-		expectEOF = true
 	}
 }
 
@@ -101,6 +122,9 @@ func (d *Decoder) readString(v reflect.Value) error {
 			}
 			return err
 		case c == byte('"'):
+			if v.Elem().Kind() != reflect.String && v.Elem().Kind() != reflect.Interface {
+				return d.unmarshalTypeError("string", v.Elem().Type())
+			}
 			v.Elem().Set(reflect.ValueOf(string(buf)))
 			return nil
 		case c == byte('\\'):
@@ -120,6 +144,14 @@ func (d *Decoder) readString(v reflect.Value) error {
 func (d *Decoder) syntaxErrorf(format string, a ...interface{}) *SyntaxError {
 	return &SyntaxError{
 		msg:    fmt.Sprintf(format, a...),
+		Offset: d.offset,
+	}
+}
+
+func (d *Decoder) unmarshalTypeError(value string, t reflect.Type) *UnmarshalTypeError {
+	return &UnmarshalTypeError{
+		Value:  value,
+		Type:   t,
 		Offset: d.offset,
 	}
 }
