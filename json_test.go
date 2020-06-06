@@ -19,6 +19,15 @@ func TestDecode(t *testing.T) {
 		"empty json": []byte(``),
 		"invalid":    []byte(`lol`),
 
+		"true":          []byte(`true`),
+		"false":         []byte(`false`),
+		"invalid true":  []byte(`ture`),
+		"invalid false": []byte(`fsale`),
+		"short true":    []byte(`tru`),
+		"short false":   []byte(`fals`),
+		"shorter true":  []byte(`t`),
+		"shorter false": []byte(`f`),
+
 		"unterm empty string": []byte(`"`),
 		"unterm string":       []byte(`" `),
 		"empty string":        []byte(`""`),
@@ -67,55 +76,57 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func TestDecodeStringToTypes(t *testing.T) {
-	testJSON := []byte(`"test"`)
-	tests := map[string]interface{}{
-		"*interface{}": func() *interface{} { var i interface{}; return &i },
-		"interface{}":  func() interface{} { var i interface{}; return i },
-		"*string":      func() *string { s := ""; return &s }(),
-		"string":       "",
-		"*int":         func() *int { i := 0; return &i }(),
-		"int":          0,
-		"nil":          nil,
+func TestDecodeToTypes(t *testing.T) {
+	tests := map[string]struct {
+		input       []byte
+		destination interface{}
+	}{
+		"string_*interface{}": {[]byte(`"string"`), new(interface{})},
+		"string_interface{}":  {[]byte(`"string"`), nil},
+		"string_*string":      {[]byte(`"string"`), func() *string { s := ""; return &s }()},
+		"string_string":       {[]byte(`"string"`), ""},
+		"string_*int":         {[]byte(`"string"`), new(int)},
+		"string_int":          {[]byte(`"string"`), 0},
+
+		"bool_*interface{}": {[]byte(`true`), new(interface{})},
+		"bool_interface{}":  {[]byte(`true`), nil},
+		"bool_*bool":        {[]byte(`true`), new(bool)},
+		"bool_bool":         {[]byte(`true`), false},
+		"bool_*int":         {[]byte(`true`), new(int)},
+		"bool_int":          {[]byte(`true`), 0},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			errJ := json.NewDecoder(bytes.NewBuffer(testJSON)).Decode(tt)
-			err := NewDecoder(bytes.NewBuffer(testJSON)).Decode(tt)
+			errJ := json.NewDecoder(bytes.NewBuffer(tt.input)).Decode(tt.destination)
+			err := NewDecoder(bytes.NewBuffer(tt.input)).Decode(tt.destination)
+			if s, ok := tt.destination.(*string); ok {
+				assert.Equal(t, "string", *s)
+			}
+			if b, ok := tt.destination.(*bool); ok {
+				assert.True(t, *b)
+			}
 			eqaulError(t, errJ, err)
 		})
 	}
 }
 
-// TODO decode into non pointer type
-
 // TODO test the invalid UTF8 sequences here to lock in behaviour
 
-func TestDecodeEscapeReadError(t *testing.T) {
-	tests := map[string]struct {
-		prefix []byte
-		err    error
-	}{
-		"fist read": {
-			prefix: []byte(``),
-			err:    errors.New("lol"),
-		},
-		"read string": {
-			prefix: []byte(`"`),
-			err:    errors.New("lol"),
-		},
-		"unescape": {
-			prefix: []byte(`"\`),
-			err:    errors.New("lol"),
-		},
+func TestDecodeReadError(t *testing.T) {
+	tests := map[string]string{
+		"fist read":   ``,
+		"second read": ` `,
+		"read string": `"`,
+		"unescape":    `"\`,
+		"bool":        `t`,
 	}
 
-	for name, tt := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			primeMock := func(r *mockReader) {
 				r.Test(t)
 				t.Cleanup(func() { r.AssertExpectations(t) })
-				for _, b := range tt.prefix {
+				for _, b := range []byte(test) {
 					func(b byte) {
 						r.On("Read", mock.Anything).Run(func(args mock.Arguments) {
 							p := args.Get(0).([]byte)
@@ -124,28 +135,26 @@ func TestDecodeEscapeReadError(t *testing.T) {
 						}).Return(1, nil).Once()
 					}(b)
 				}
-				r.On("Read", mock.Anything).Return(0, tt.err).Once()
+				r.On("Read", mock.Anything).Return(0, errors.New("lol")).Once()
 			}
 			r := &mockReader{}
-			s := ""
+			var x interface{}
 			primeMock(r)
-			errJ := json.NewDecoder(r).Decode(&s)
+			errJ := json.NewDecoder(r).Decode(&x)
 			r = &mockReader{}
 			primeMock(r)
-			err := NewDecoder(r).Decode(&s)
+			err := NewDecoder(r).Decode(&x)
 			eqaulError(t, errJ, err)
 		})
 	}
 }
 
 func BenchmarkDecode(b *testing.B) {
-	tests := []string{
-		"small_string",
-		"large_string",
-	}
-	for _, test := range tests {
-		b.Run(test, func(b *testing.B) {
-			input, err := ioutil.ReadFile(filepath.Join("fixtures", test+".json"))
+	tests, err := ioutil.ReadDir("fixtures")
+	require.NoError(b, err)
+	for _, file := range tests {
+		b.Run(file.Name(), func(b *testing.B) {
+			input, err := ioutil.ReadFile(filepath.Join("fixtures", file.Name()))
 			require.NoError(b, err)
 
 			b.Run("github.com/brackendawson/json", func(b *testing.B) {

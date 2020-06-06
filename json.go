@@ -36,6 +36,14 @@ var (
 		'\r': true,
 		'\n': true,
 	}
+	boolMap = map[byte]bool{
+		't': true,
+		'f': false,
+	}
+	boolEnd = map[byte][]byte{
+		't': []byte(`rue`),
+		'f': []byte(`alse`),
+	}
 	TODO = errors.New("TODO")
 )
 
@@ -100,6 +108,8 @@ func (d *Decoder) Decode(v interface{}) error {
 			return err
 		case c == byte('"'):
 			return d.readString(vv)
+		case c == byte('t'), c == byte('f'):
+			return d.readBool(c, vv)
 		case whitespace[c]:
 		default:
 			return d.syntaxErrorf("invalid character %q looking for beginning of value", c)
@@ -139,6 +149,29 @@ func (d *Decoder) readString(v reflect.Value) error {
 			buf = append(buf, c)
 		}
 	}
+}
+
+func (d *Decoder) readBool(b byte, v reflect.Value) error {
+	var (
+		c   byte
+		err error
+	)
+	for i := 0; i < len(boolEnd[b]); i++ {
+		if c, err = d.readByte(); err != nil {
+			if err == io.EOF {
+				return EOF
+			}
+			return err
+		}
+		if c != boolEnd[b][i] {
+			return d.syntaxErrorf("invalid character %q in literal %v (expecting %q)", c, boolMap[b], boolEnd[b][i])
+		}
+	}
+	if v.Elem().Kind() != reflect.Bool && v.Elem().Kind() != reflect.Interface {
+		return d.unmarshalTypeError("bool", v.Elem().Type())
+	}
+	v.Elem().Set(reflect.ValueOf(boolMap[b]))
+	return nil
 }
 
 func (d *Decoder) syntaxErrorf(format string, a ...interface{}) *SyntaxError {
