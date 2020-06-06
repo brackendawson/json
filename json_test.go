@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"path/filepath"
 	"testing"
 
 	"github.com/intel-go/fastjson"
@@ -90,47 +91,6 @@ func TestDecodeStringToTypes(t *testing.T) {
 
 // TODO test the invalid UTF8 sequences here to lock in behaviour
 
-func BenchmarkDecodeString(b *testing.B) {
-	tests := map[string][]byte{
-		"small": []byte(`"the cat sat on the mat"`),
-		"large": func() []byte {
-			out, err := ioutil.ReadFile("fixtures/romeo_and_juliet.txt")
-			if err != nil {
-				b.Fatal(err)
-			}
-			return out
-		}(),
-	}
-	for name, tt := range tests {
-		b.Run(name, func(b *testing.B) {
-			b.Run("github.com/brackendawson/json", func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					var v interface{}
-					if err := NewDecoder(bytes.NewReader(tt)).Decode(&v); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
-			b.Run("encoding/json                ", func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					var v interface{}
-					if err := json.NewDecoder(bytes.NewReader(tt)).Decode(&v); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
-			b.Run("github.com/intel-go/fastjson ", func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					var v interface{}
-					if err := fastjson.NewDecoder(bytes.NewReader(tt)).Decode(&v); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
-		})
-	}
-}
-
 func TestDecodeEscapeReadError(t *testing.T) {
 	tests := map[string]struct {
 		prefix []byte
@@ -174,6 +134,44 @@ func TestDecodeEscapeReadError(t *testing.T) {
 			primeMock(r)
 			err := NewDecoder(r).Decode(&s)
 			eqaulError(t, errJ, err)
+		})
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	tests := []string{
+		"small_string",
+		"large_string",
+	}
+	for _, test := range tests {
+		b.Run(test, func(b *testing.B) {
+			input, err := ioutil.ReadFile(filepath.Join("fixtures", test+".json"))
+			require.NoError(b, err)
+
+			b.Run("github.com/brackendawson/json", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					var v interface{}
+					if err := NewDecoder(bytes.NewReader(input)).Decode(&v); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("encoding/json                ", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					var v interface{}
+					if err := json.NewDecoder(bytes.NewReader(input)).Decode(&v); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("github.com/intel-go/fastjson ", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					var v interface{}
+					if err := fastjson.NewDecoder(bytes.NewReader(input)).Decode(&v); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
 		})
 	}
 }
