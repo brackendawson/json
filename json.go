@@ -193,8 +193,8 @@ func (d *Decoder) readUint(b byte, v reflect.Value) error {
 			}
 			return err
 		}
-		if c == '.' {
-			return d.readFloat(rawNumber, v)
+		if c == '.' || c == 'e' || c == 'E' {
+			return d.readFloat(rawNumber, c, v)
 		}
 		if c < '0' || c > '9' {
 			if err = d.unreadByte(); err != nil {
@@ -242,12 +242,12 @@ func (d *Decoder) readInt(v reflect.Value) error {
 			}
 			return err
 		}
-		if c == '.' {
+		if c == '.' || c == 'e' || c == 'E' {
 			if len(rawNumber) == 0 {
 				return d.syntaxErrorf("invalid character '.' in numeric literal")
 			}
 			rawNumber = append([]byte{'-'}, rawNumber...)
-			return d.readFloat(rawNumber, v)
+			return d.readFloat(rawNumber, c, v)
 		}
 		if c < '0' || c > '9' {
 			if len(rawNumber) == 0 {
@@ -281,13 +281,19 @@ func (d *Decoder) readInt(v reflect.Value) error {
 	return nil
 }
 
-func (d *Decoder) readFloat(b []byte, v reflect.Value) error {
+func (d *Decoder) readFloat(b []byte, e byte, v reflect.Value) error {
 	var (
-		c   byte
-		err error
-		num float64
+		c          byte
+		err        error
+		num        float64
+		expo       = false
+		signedExpo = false
 	)
-	b = append(b, '.')
+	b = append(b, e)
+	if e == 'e' || e == 'E' {
+		expo = true
+	}
+floatLoop:
 	for {
 		if c, err = d.readByte(); err != nil {
 			if err == io.EOF {
@@ -295,8 +301,20 @@ func (d *Decoder) readFloat(b []byte, v reflect.Value) error {
 			}
 			return err
 		}
-		if c < '0' || c > '9' {
-			break
+		switch {
+		case c == 'e', c == 'E':
+			if expo {
+				return d.syntaxErrorf("invalid character %q in exponent of numeric literal", c)
+			}
+			expo = true
+		case c == '-', c == '+':
+			if signedExpo {
+				return d.syntaxErrorf("invalid character %q in exponent of numeric literal", c)
+			}
+			signedExpo = true
+		case c >= '0' && c <= '9':
+		default:
+			break floatLoop
 		}
 		b = append(b, c)
 	}
