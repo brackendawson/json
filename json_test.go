@@ -154,19 +154,104 @@ func TestDecode(t *testing.T) {
 		"1 float array":  []byte(`[1.1]`),
 		"2 float array":  []byte(`[1.1,-2.2]`),
 		"mixed array":    []byte(`[42,-7,3.141592654,"hello\nworld\n",true]`),
-		"spaced array":   []byte("  [  42 \t , \n -7 \r ,  3.141592654  ,  \"hello\\nworld\\n\"  ,  true  ]  "),
+		"spaced array":   []byte(" \t\n\r [ \t\n\r 42 \t\n\r , \t\n\r -7 \t\n\r ,  3.141592654  ,  \"hello\\nworld\\n\"  ,  true \t\n\r ] \t\n\r "),
 		"smnested array": []byte(`[[[1]]]`),
 		"nested array":   []byte(`[[1,2],[3,4]]`),
 		"very nested array": []byte(`[[[1,2,3],[4,5,6],[7,8,9]],
 		[["a","b","c"],["d","e","f"],["g","h","i"]],
 			[[true,false,true],[false,true,false],[true,false,true]]]`),
 		"unterm array":      []byte(`[`),
+		"unterm2 array":     []byte(`["`),
+		"unterm3 array":     []byte(`["a`),
+		"unterm4 array":     []byte(`["a"`),
+		"unterm5 array":     []byte(`["a",`),
+		"unterm6 array":     []byte(`["a","`),
+		"unterm7 array":     []byte(`["a","b`),
+		"unterm8 array":     []byte(`["a","b"`),
+		"unexpect array":    []byte(`~["a","b"]`),
+		"unexpect2 array":   []byte(`[~"a","b"]`),
+		"unexpect3 array":   []byte(`["a"~,"b"]`),
+		"unexpect4 array":   []byte(`["a",~"b"]`),
+		"unexpect5 array":   []byte(`["a","b"~]`),
+		"unexpect6 array":   []byte(`["a","b"]~`),
 		"unterm popd array": []byte(`[1`),
 		"unterm sepd array": []byte(`[1,`),
 		"early termd array": []byte(`[1,]`),
 		"unsepd array":      []byte(`[1 2]`),
 		"trailed array":     []byte(`[1,2]trail`),
 		"doublesepd array":  []byte(`[1,,2]`),
+		"valueless array":   []byte(`[,]`),
+
+		"empty object":  []byte(`{}`),
+		"simple object": []byte(`{"a":1}`),
+		"bigger object": []byte(`{"a":1,"b":2}`),
+		"spaced object": []byte(" \t\r\n { \t\r\n \"a\" \t\r\n : \t\r\n 1 \t\r\n , \t\r\n \"b\" \t\r\n : \t\r\n 2 \t\r\n } \t\r\n "),
+		"mixed object": []byte(`{
+			"string":	"hi",
+			"uint":		1,
+			"int":		-1,
+			"float":	1.1,
+			"bool":		true,
+			"array":	[],
+			"object":	{}
+		}`),
+		"unterm object":     []byte(`{`),
+		"unterm2 object":    []byte(`{"`),
+		"unterm3 object":    []byte(`{"a`),
+		"unterm4 object":    []byte(`{"a"`),
+		"unterm5 object":    []byte(`{"a":`),
+		"unterm6 object":    []byte(`{"a":"`),
+		"unterm7 object":    []byte(`{"a":"a`),
+		"unterm8 object":    []byte(`{"a":"a"`),
+		"unterm9 object":    []byte(`{"a":"a",`),
+		"unterm10 object":   []byte(`{"a":"a","`),
+		"unterm11 object":   []byte(`{"a":"a","b`),
+		"unterm12 object":   []byte(`{"a":"a","b"`),
+		"unterm13 object":   []byte(`{"a":"a","b":`),
+		"unterm14 object":   []byte(`{"a":"a","b":"`),
+		"unterm15 object":   []byte(`{"a":"a","b":"b`),
+		"unterm16 object":   []byte(`{"a":"a","b":"b"`),
+		"unexpect object":   []byte(`~{"a":"a","b":"b"}`),
+		"unexpect2 object":  []byte(`{~"a":"a","b":"b"}`),
+		"unexpect3 object":  []byte(`{"a"~:"a","b":"b"}`),
+		"unexpect4 object":  []byte(`{"a":~"a","b":"b"}`),
+		"unexpect5 object":  []byte(`{"a":"a"~,"b":"b"}`),
+		"unexpect6 object":  []byte(`{"a":"a",~"b":"b"}`),
+		"unexpect7 object":  []byte(`{"a":"a","b"~:"b"}`),
+		"unexpect8 object":  []byte(`{"a":"a","b":~"b"}`),
+		"unexpect9 object":  []byte(`{"a":"a","b":"b"~}`),
+		"unexpect10 object": []byte(`{"a":"a","b":"b"}~`),
+		"invalid object":    []byte(`{1:1}`),
+		"invalid2 object":   []byte(`{-1:1}`),
+		"invalid3 object":   []byte(`{1.1:1}`),
+		"invalid4 object":   []byte(`{true:1}`),
+		"invalid5 object":   []byte(`{[]:1}`),
+		"invalid6 object":   []byte(`{{}:1}`),
+		"nested object": []byte(`{
+			"arrays":	{
+				"of int":		[1,2,3],
+				"of string":	["a","b","c"],
+				"of bool":		[true,false,true],
+				"of anything":	["a",1,true]
+			},
+			"numbers":	{
+				"one": 				1,
+				"negative devil":	-666,
+				"floaty":			6.3e-9
+			},
+			"string": "the cat sat on the mat",
+			"deep": {
+				"down": {
+					"down": {
+						"deeper": {
+							"and": {
+								"down": ":-O"
+							}
+						}
+					}
+				}
+			}
+		}`),
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -442,6 +527,11 @@ func TestDecodeReadError(t *testing.T) {
 		"expo4":       `0.1e-6`,
 		"arr":         `[`,
 		"arr2":        `[" "`,
+		"obj":         `{`,
+		"objkey":      `{"a"`,
+		"objsep":      `{"a":`,
+		"objval":      `{"a":"a"`,
+		"objspace":    `{ `,
 	}
 
 	for name, test := range tests {

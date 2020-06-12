@@ -14,7 +14,6 @@ import (
 )
 
 var (
-	EOF      = errors.New("unexpected EOF")
 	invalidS = map[byte]bool{
 		'\b': true,
 		'\f': true,
@@ -50,8 +49,6 @@ type SyntaxError struct {
 func (s *SyntaxError) Error() string {
 	return s.msg
 }
-
-// TODO Is()?
 
 type InvalidUnmarshalError struct {
 	Type reflect.Type
@@ -105,6 +102,8 @@ func (d *Decoder) readValue(c byte, v reflect.Value) error {
 
 	for {
 		switch c {
+		case '{':
+			return d.readObject(c, v)
 		case '[':
 			return d.readArray(c, v)
 		case '"':
@@ -123,6 +122,123 @@ func (d *Decoder) readValue(c byte, v reflect.Value) error {
 			return err
 		}
 	}
+}
+
+func (d *Decoder) readObject(c byte, v reflect.Value) error {
+	var (
+		obj, val reflect.Value
+		key      string
+		err      error
+		firstKey = true
+	)
+	switch v.Elem().Kind() {
+	case reflect.Interface:
+		obj = reflect.ValueOf(&map[string]interface{}{})
+	}
+
+objLoop:
+	for {
+		switch c {
+		case ',', '{':
+			if c, err = d.readByte(); err != nil {
+				if err == io.EOF {
+					return io.ErrUnexpectedEOF
+				}
+				return err
+			}
+			if firstKey && c == '}' {
+				break objLoop
+			}
+			firstKey = false
+
+			if key, err = d.readObjectKey(c); err != nil {
+				return err
+			}
+
+			if err = d.readObjectSeparator(); err != nil {
+				return err
+			}
+
+			val = reflect.ValueOf(new(interface{}))
+			if c, err = d.readByte(); err != nil {
+				if err == io.EOF {
+					return io.ErrUnexpectedEOF
+				}
+				return err
+			}
+			if err = d.readValue(c, val); err != nil {
+				return err
+			}
+
+			obj.Elem().SetMapIndex(reflect.ValueOf(key), val.Elem())
+
+			fallthrough
+		case ' ', '\t', '\r', '\n':
+			if c, err = d.readByte(); err != nil {
+				if err == io.EOF {
+					return io.ErrUnexpectedEOF
+				}
+				return err
+			}
+		case '}':
+			break objLoop
+		default:
+			return d.syntaxErrorf("invalid character %q after object key:value pair", c)
+		}
+	}
+
+	v.Elem().Set(obj.Elem())
+	return nil
+}
+
+func (d *Decoder) readObjectKey(c byte) (string, error) {
+	var (
+		key string
+		err error
+	)
+
+keyLoop:
+	for {
+		switch c {
+		case '"':
+			if err = d.readString(reflect.ValueOf(&key)); err != nil {
+				return "", err
+			}
+			break keyLoop
+		case ' ', '\t', '\r', '\n':
+			if c, err = d.readByte(); err != nil {
+				return "", err
+			}
+		default:
+			return "", d.syntaxErrorf("invalid character %q looking for beginning of object key string", c)
+		}
+	}
+
+	return key, nil
+}
+
+func (d *Decoder) readObjectSeparator() error {
+	var (
+		c   byte
+		err error
+	)
+separatorLoop:
+	for {
+		if c, err = d.readByte(); err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
+			return err
+		}
+		switch c {
+		case ':':
+			break separatorLoop
+		case ' ', '\t', '\r', '\n':
+		default:
+			return d.syntaxErrorf("invalid character %q after object key", c)
+		}
+	}
+	return nil
 }
 
 func (d *Decoder) readArray(c byte, v reflect.Value) error {
@@ -148,7 +264,7 @@ arrLoop:
 		case ',', '[':
 			if c, err = d.readByte(); err != nil {
 				if err == io.EOF {
-					return EOF
+					return io.ErrUnexpectedEOF
 				}
 				return err
 			}
@@ -177,7 +293,7 @@ arrLoop:
 		case ' ', '\t', '\r', '\n':
 			if c, err = d.readByte(); err != nil {
 				if err == io.EOF {
-					return EOF
+					return io.ErrUnexpectedEOF
 				}
 				return err
 			}
@@ -206,7 +322,7 @@ func (d *Decoder) readString(v reflect.Value) error {
 		switch {
 		case err != nil:
 			if err == io.EOF {
-				return EOF
+				return io.ErrUnexpectedEOF
 			}
 			return err
 		case c == '"':
@@ -234,10 +350,10 @@ func (d *Decoder) readBool(b byte, v reflect.Value) error {
 		c   byte
 		err error
 	)
-	for i := 0; i < len(boolEnd[b]); i++ {
+	for i := range boolEnd[b] {
 		if c, err = d.readByte(); err != nil {
 			if err == io.EOF {
-				return EOF
+				return io.ErrUnexpectedEOF
 			}
 			return err
 		}
@@ -311,7 +427,7 @@ func (d *Decoder) readInt(v reflect.Value) error {
 				if expectEOF {
 					break
 				}
-				return EOF
+				return io.ErrUnexpectedEOF
 			}
 			return err
 		}
