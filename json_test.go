@@ -361,11 +361,11 @@ func TestDecodeToTypes(t *testing.T) {
 		"[3]int_int":        {[]byte(`[1,2,3]`), 0, 0},
 		// This exercises inputs too large for destination arrays, the addional 2 arrays help with a difference in how
 		// encoding/json assings capacity in the slices
-		"[][4]int_*[]2int": {[]byte(`[[1,2,3,4],[5,6,7,8],[],[]]`), new([][2]int), new([][2]int)},
-		// TODO this one doesn't work yet
-		// "[3]int_*[]*int": {[]byte(`[1,2,3]`), new([]*int), new([]*int)},
+		"[][4]int_*[]2int":      {[]byte(`[[1,2,3,4],[5,6,7,8],[],[]]`), new([][2]int), new([][2]int)},
 		"[3]float_*[]int":       {[]byte(`[1.2,1.2,1.3]`), new([]int), new([]int)},
 		"[1][1]int_*[][]string": {[]byte(`[[1]]`), new([][]string), new([][]string)},
+
+		// TODO deep pointers []*imt, *******int and so on.
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -407,6 +407,8 @@ func TestDecodeReadError(t *testing.T) {
 		"expo2":       `0.1e`,
 		"expo3":       `0.1e-`,
 		"expo4":       `0.1e-6`,
+		"arr":         `[`,
+		"arr2":        `[" "`,
 	}
 
 	for name, test := range tests {
