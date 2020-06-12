@@ -31,12 +31,6 @@ var (
 		'\\': '\\',
 		'"':  '"',
 	}
-	whitespace = map[byte]bool{
-		' ':  true,
-		'\t': true,
-		'\r': true,
-		'\n': true,
-	}
 	boolMap = map[byte]bool{
 		't': true,
 		'f': false,
@@ -94,32 +88,111 @@ func NewDecoder(r io.Reader) *Decoder {
 }
 
 func (d *Decoder) Decode(v interface{}) error {
-	var (
-		vv  = reflect.ValueOf(v)
-		c   byte
-		err error
-	)
+	vv := reflect.ValueOf(v)
 	if vv.Kind() != reflect.Ptr || vv.IsNil() {
 		return &InvalidUnmarshalError{reflect.TypeOf(v)}
 	}
+
+	c, err := d.readByte()
+	if err != nil {
+		return err
+	}
+	return d.readValue(c, vv)
+}
+
+func (d *Decoder) readValue(c byte, v reflect.Value) error {
+	var err error
+
 	for {
-		c, err = d.readByte()
-		switch {
-		case err != nil:
-			return err
-		case c == '"':
-			return d.readString(vv)
-		case c == 't', c == 'f':
-			return d.readBool(c, vv)
-		case c >= '0' && c <= '9':
-			return d.readUint(c, vv)
-		case c == '-':
-			return d.readInt(vv)
-		case whitespace[c]:
+		switch c {
+		case '[':
+			return d.readArray(c, v)
+		case '"':
+			return d.readString(v)
+		case 't', 'f':
+			return d.readBool(c, v)
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			return d.readUint(c, v)
+		case '-':
+			return d.readInt(v)
+		case ' ', '\t', '\r', '\n':
 		default:
 			return d.syntaxErrorf("invalid character %q looking for beginning of value", c)
 		}
+		if c, err = d.readByte(); err != nil {
+			return err
+		}
 	}
+}
+
+func (d *Decoder) readArray(c byte, v reflect.Value) error {
+	var (
+		i         = 0
+		arr, elem reflect.Value
+		err       error
+		firstElem = true
+	)
+
+	switch v.Elem().Kind() {
+	case reflect.Interface:
+		arr = reflect.ValueOf(&[]interface{}{})
+	case reflect.Slice, reflect.Array:
+		arr = v
+	default:
+		return d.unmarshalTypeError("array", v.Elem().Type())
+	}
+
+arrLoop:
+	for {
+		switch c {
+		case ',', '[':
+			if c, err = d.readByte(); err != nil {
+				if err == io.EOF {
+					return EOF
+				}
+				return err
+			}
+			if firstElem && c == ']' {
+				break arrLoop
+			}
+			firstElem = false
+
+			if i >= arr.Elem().Len() {
+				if arr.Elem().Kind() == reflect.Slice {
+					arr.Elem().Set(reflect.Append(arr.Elem(), reflect.New(arr.Elem().Type().Elem()).Elem()))
+					elem = arr.Elem().Index(i).Addr()
+				} else {
+					// The Array v has no more space, but we must read the values to be able to proceed
+					elem = reflect.ValueOf(new(interface{}))
+				}
+			} else {
+				elem = arr.Elem().Index(i).Addr()
+			}
+			if err = d.readValue(c, elem); err != nil {
+				return err
+			}
+			i++
+
+			fallthrough
+		case ' ', '\t', '\r', '\n':
+			if c, err = d.readByte(); err != nil {
+				if err == io.EOF {
+					return EOF
+				}
+				return err
+			}
+		case ']':
+			break arrLoop
+		default:
+			return d.syntaxErrorf("invalid character %q after array element", c)
+		}
+	}
+
+	if arr.Elem().Kind() == reflect.Slice {
+		arr.Elem().SetLen(i)
+	}
+	v.Elem().Set(arr.Elem())
+	return nil
 }
 
 func (d *Decoder) readString(v reflect.Value) error {
@@ -314,6 +387,9 @@ floatLoop:
 			signedExpo = true
 		case c >= '0' && c <= '9':
 		default:
+			if err = d.unreadByte(); err != nil {
+				return err
+			}
 			break floatLoop
 		}
 		b = append(b, c)

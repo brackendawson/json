@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -54,6 +55,7 @@ func TestDecode(t *testing.T) {
 		// "invalid utf8 3/4 string": []byte("\"\xf0\x90\x28\xbc\""),
 		// "invalid utf8 4/4 string": []byte("\"\xf0\x28\x8c\x28\""),
 		"whitespace string":       []byte(" \t\r\n \"string with whitespace\" \t\r\n "),
+		"formfeed space":          []byte("\f\"what even is a form feed?\""),
 		"two strings":             []byte(`"cant have""two strings"`),
 		"spaced strings":          []byte(`   "cant have"   "two strings"   `),
 		"trailing invalid string": []byte(`"duck duck" goose`),
@@ -140,6 +142,31 @@ func TestDecode(t *testing.T) {
 		"number -1.1e--6":                       []byte(`-1.1e--6`),
 		"number 1.1ee6":                         []byte(`1.1ee6`),
 		"number 1.1e--6":                        []byte(`1.1e--6`),
+
+		"empty array":    []byte(`[]`),
+		"1 num array":    []byte(`[1]`),
+		"2 num array":    []byte(`[1,2]`),
+		"3 num array":    []byte(`[-1,0,1]`),
+		"1 string array": []byte(`["lol"]`),
+		"2 string array": []byte(`["lol","wot"]`),
+		"1 bool array":   []byte(`[true]`),
+		"2 bool array":   []byte(`[true, false]`),
+		"1 float array":  []byte(`[1.1]`),
+		"2 float array":  []byte(`[1.1,-2.2]`),
+		"mixed array":    []byte(`[42,-7,3.141592654,"hello\nworld\n",true]`),
+		"spaced array":   []byte("  [  42 \t , \n -7 \r ,  3.141592654  ,  \"hello\\nworld\\n\"  ,  true  ]  "),
+		"smnested array": []byte(`[[[1]]]`),
+		"nested array":   []byte(`[[1,2],[3,4]]`),
+		"very nested array": []byte(`[[[1,2,3],[4,5,6],[7,8,9]],
+		[["a","b","c"],["d","e","f"],["g","h","i"]],
+			[[true,false,true],[false,true,false],[true,false,true]]]`),
+		"unterm array":      []byte(`[`),
+		"unterm popd array": []byte(`[1`),
+		"unterm sepd array": []byte(`[1,`),
+		"early termd array": []byte(`[1,]`),
+		"unsepd array":      []byte(`[1 2]`),
+		"trailed array":     []byte(`[1,2]trail`),
+		"doublesepd array":  []byte(`[1,,2]`),
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -163,205 +190,196 @@ func TestDecode(t *testing.T) {
 
 func TestDecodeToTypes(t *testing.T) {
 	tests := map[string]struct {
-		input []byte
-		dest  interface{}
-		check func(t *testing.T, dest interface{})
+		input       []byte
+		destJ, dest interface{}
 	}{
-		"string_*interface{}": {[]byte(`"string"`), new(interface{}), nil},
+		"string_*interface{}": {[]byte(`"string"`), new(interface{}), new(interface{})},
 		"string_interface{}":  {[]byte(`"string"`), nil, nil},
-		"string_*string": {
-			[]byte(`"string"`),
-			new(string),
-			func(t *testing.T, dest interface{}) {
-				s, ok := dest.(*string)
-				if assert.True(t, ok) {
-					assert.Equal(t, "string", *s)
-				}
-			},
-		},
-		"string_string": {[]byte(`"string"`), "", nil},
-		"string_*int":   {[]byte(`"string"`), new(int), nil},
-		"string_int":    {[]byte(`"string"`), 0, nil},
+		"string_*string":      {[]byte(`"string"`), new(string), new(string)},
+		"string_string":       {[]byte(`"string"`), "", ""},
+		"string_*int":         {[]byte(`"string"`), new(int), new(int)},
+		"string_int":          {[]byte(`"string"`), 0, 0},
 
-		"bool_*interface{}": {[]byte(`true`), new(interface{}), nil},
+		"bool_*interface{}": {[]byte(`true`), new(interface{}), new(interface{})},
 		"bool_interface{}":  {[]byte(`true`), nil, nil},
-		"bool_*bool": {
-			[]byte(`true`),
-			new(bool),
-			func(t *testing.T, dest interface{}) {
-				b, ok := dest.(*bool)
-				if assert.True(t, ok) {
-					assert.True(t, *b)
-				}
-			},
-		},
-		"bool_bool": {[]byte(`true`), false, nil},
-		"bool_*int": {[]byte(`true`), new(int), nil},
-		"bool_int":  {[]byte(`true`), 0, nil},
+		"bool_*bool":        {[]byte(`true`), new(bool), new(bool)},
+		"bool_bool":         {[]byte(`true`), false, false},
+		"bool_*int":         {[]byte(`true`), new(int), new(int)},
+		"bool_int":          {[]byte(`true`), 0, 0},
 
-		"uint_*interface{}": {[]byte(`1`), new(interface{}), nil},
+		"uint_*interface{}": {[]byte(`1`), new(interface{}), new(interface{})},
 		"uint_interface{}":  {[]byte(`1`), nil, nil},
-		"uint_*uint64":      {[]byte(`1`), new(uint64), nil},
-		"uint_uint64":       {[]byte(`1`), uint64(0), nil},
-		"uint_*uint32":      {[]byte(`1`), new(uint32), nil},
-		"uint_uint32":       {[]byte(`1`), uint32(0), nil},
-		"uint_*uint16":      {[]byte(`1`), new(uint16), nil},
-		"uint_uint16":       {[]byte(`1`), uint16(0), nil},
-		"uint_*uint8":       {[]byte(`1`), new(uint8), nil},
-		"uint_uint8":        {[]byte(`1`), uint8(0), nil},
-		"uint_*uint": {
-			[]byte(`1`),
-			new(uint),
-			func(t *testing.T, dest interface{}) {
-				u, ok := dest.(*uint)
-				if assert.True(t, ok) {
-					assert.Equal(t, uint(1), *u)
-				}
-			},
-		},
-		"uint_uint":     {[]byte(`1`), uint(0), nil},
-		"uint_*int64":   {[]byte(`1`), new(int64), nil},
-		"uint_int64":    {[]byte(`1`), int64(0), nil},
-		"uint_*int32":   {[]byte(`1`), new(int32), nil},
-		"uint_int32":    {[]byte(`1`), int32(0), nil},
-		"uint_*int16":   {[]byte(`1`), new(int16), nil},
-		"uint_int16":    {[]byte(`1`), int16(0), nil},
-		"uint_*int8":    {[]byte(`1`), new(int8), nil},
-		"uint_int8":     {[]byte(`1`), int8(0), nil},
-		"uint_*int":     {[]byte(`1`), new(int), nil},
-		"uint_int":      {[]byte(`1`), int(0), nil},
-		"uint_*float64": {[]byte(`1`), new(float64), nil},
-		"uint_float64":  {[]byte(`1`), float64(0), nil},
-		"uint_*float32": {[]byte(`1`), new(float32), nil},
-		"uint_float32":  {[]byte(`1`), float32(0), nil},
-		"uint_*string":  {[]byte(`1`), new(string), nil},
-		"uint_string":   {[]byte(`1`), "", nil},
+		"uint_*uint64":      {[]byte(`1`), new(uint64), new(uint64)},
+		"uint_uint64":       {[]byte(`1`), uint64(0), uint64(0)},
+		"uint_*uint32":      {[]byte(`1`), new(uint32), new(uint32)},
+		"uint_uint32":       {[]byte(`1`), uint32(0), uint32(0)},
+		"uint_*uint16":      {[]byte(`1`), new(uint16), new(uint16)},
+		"uint_uint16":       {[]byte(`1`), uint16(0), uint16(0)},
+		"uint_*uint8":       {[]byte(`1`), new(uint8), new(uint8)},
+		"uint_uint8":        {[]byte(`1`), uint8(0), uint8(0)},
+		"uint_*uint":        {[]byte(`1`), new(uint), new(uint)},
+		"uint_uint":         {[]byte(`1`), uint(0), uint(0)},
+		"uint_*int64":       {[]byte(`1`), new(int64), new(int64)},
+		"uint_int64":        {[]byte(`1`), int64(0), int64(0)},
+		"uint_*int32":       {[]byte(`1`), new(int32), new(int32)},
+		"uint_int32":        {[]byte(`1`), int32(0), int32(0)},
+		"uint_*int16":       {[]byte(`1`), new(int16), new(int16)},
+		"uint_int16":        {[]byte(`1`), int16(0), int16(0)},
+		"uint_*int8":        {[]byte(`1`), new(int8), new(int8)},
+		"uint_int8":         {[]byte(`1`), int8(0), int8(0)},
+		"uint_*int":         {[]byte(`1`), new(int), new(int)},
+		"uint_int":          {[]byte(`1`), int(0), int(0)},
+		"uint_*float64":     {[]byte(`1`), new(float64), new(float64)},
+		"uint_float64":      {[]byte(`1`), float64(0), float64(0)},
+		"uint_*float32":     {[]byte(`1`), new(float32), new(float32)},
+		"uint_float32":      {[]byte(`1`), float32(0), float32(0)},
+		"uint_*string":      {[]byte(`1`), new(string), new(string)},
+		"uint_string":       {[]byte(`1`), "", ""},
 
-		"int_*interface{}": {[]byte(`-1`), new(interface{}), nil},
+		"int_*interface{}": {[]byte(`-1`), new(interface{}), new(interface{})},
 		"int_interface{}":  {[]byte(`-1`), nil, nil},
-		"int_*uint64":      {[]byte(`-1`), new(uint64), nil},
-		"int_uint64":       {[]byte(`-1`), uint64(0), nil},
-		"int_*uint32":      {[]byte(`-1`), new(uint32), nil},
-		"int_uint32":       {[]byte(`-1`), uint32(0), nil},
-		"int_*uint16":      {[]byte(`-1`), new(uint16), nil},
-		"int_uint16":       {[]byte(`-1`), uint16(0), nil},
-		"int_*uint8":       {[]byte(`-1`), new(uint8), nil},
-		"int_uint8":        {[]byte(`-1`), uint8(0), nil},
-		"int_*uint":        {[]byte(`-1`), new(uint), nil},
-		"int_uint":         {[]byte(`-1`), uint(0), nil},
-		"int_*int64":       {[]byte(`-1`), new(int64), nil},
-		"int_int64":        {[]byte(`-1`), int64(0), nil},
-		"int_*int32":       {[]byte(`-1`), new(int32), nil},
-		"int_int32":        {[]byte(`-1`), int32(0), nil},
-		"int_*int16":       {[]byte(`-1`), new(int16), nil},
-		"int_int16":        {[]byte(`-1`), int16(0), nil},
-		"int_*int8":        {[]byte(`-1`), new(int8), nil},
-		"int_int8":         {[]byte(`-1`), int8(0), nil},
-		"int_*int": {
-			[]byte(`-1`),
-			new(int),
-			func(t *testing.T, dest interface{}) {
-				i, ok := dest.(*int)
-				if assert.True(t, ok) {
-					assert.Equal(t, -1, *i)
-				}
-			},
-		},
-		"int_int":      {[]byte(`-1`), int(0), nil},
-		"int_*float64": {[]byte(`-1`), new(float64), nil},
-		"int_float64":  {[]byte(`-1`), float64(0), nil},
-		"int_*float32": {[]byte(`-1`), new(float32), nil},
-		"int_float32":  {[]byte(`-1`), float32(0), nil},
-		"int_*string":  {[]byte(`-1`), new(string), nil},
-		"int_string":   {[]byte(`-1`), "", nil},
+		"int_*uint64":      {[]byte(`-1`), new(uint64), new(uint64)},
+		"int_uint64":       {[]byte(`-1`), uint64(0), uint64(0)},
+		"int_*uint32":      {[]byte(`-1`), new(uint32), new(uint32)},
+		"int_uint32":       {[]byte(`-1`), uint32(0), uint32(0)},
+		"int_*uint16":      {[]byte(`-1`), new(uint16), new(uint16)},
+		"int_uint16":       {[]byte(`-1`), uint16(0), uint16(0)},
+		"int_*uint8":       {[]byte(`-1`), new(uint8), new(uint8)},
+		"int_uint8":        {[]byte(`-1`), uint8(0), uint8(0)},
+		"int_*uint":        {[]byte(`-1`), new(uint), new(uint)},
+		"int_uint":         {[]byte(`-1`), uint(0), uint(0)},
+		"int_*int64":       {[]byte(`-1`), new(int64), new(int64)},
+		"int_int64":        {[]byte(`-1`), int64(0), int64(0)},
+		"int_*int32":       {[]byte(`-1`), new(int32), new(int32)},
+		"int_int32":        {[]byte(`-1`), int32(0), int32(0)},
+		"int_*int16":       {[]byte(`-1`), new(int16), new(int16)},
+		"int_int16":        {[]byte(`-1`), int16(0), int16(0)},
+		"int_*int8":        {[]byte(`-1`), new(int8), new(int8)},
+		"int_int8":         {[]byte(`-1`), int8(0), int8(0)},
+		"int_*int":         {[]byte(`-1`), new(int), new(int)},
+		"int_int":          {[]byte(`-1`), int(0), int(0)},
+		"int_*float64":     {[]byte(`-1`), new(float64), new(float64)},
+		"int_float64":      {[]byte(`-1`), float64(0), float64(0)},
+		"int_*float32":     {[]byte(`-1`), new(float32), new(float32)},
+		"int_float32":      {[]byte(`-1`), float32(0), float32(0)},
+		"int_*string":      {[]byte(`-1`), new(string), new(string)},
+		"int_string":       {[]byte(`-1`), "", ""},
 
-		"float_*interface{}": {[]byte(`1.2`), new(interface{}), nil},
+		"float_*interface{}": {[]byte(`1.2`), new(interface{}), new(interface{})},
 		"float_interface{}":  {[]byte(`1.2`), nil, nil},
-		"float_*uint64":      {[]byte(`1.2`), new(uint64), nil},
-		"float_uint64":       {[]byte(`1.2`), uint64(0), nil},
-		"float_*uint32":      {[]byte(`1.2`), new(uint32), nil},
-		"float_uint32":       {[]byte(`1.2`), uint32(0), nil},
-		"float_*uint16":      {[]byte(`1.2`), new(uint16), nil},
-		"float_uint16":       {[]byte(`1.2`), uint16(0), nil},
-		"float_*uint8":       {[]byte(`1.2`), new(uint8), nil},
-		"float_*uint8_long":  {[]byte(`12.3`), new(uint8), nil},
-		"float_*uint8_vlong": {[]byte(`1234567890.2`), new(uint8), nil},
-		"float_uint8":        {[]byte(`1.2`), uint8(0), nil},
-		"float_*uint":        {[]byte(`1.2`), new(uint), nil},
-		"float_uint":         {[]byte(`1.2`), uint(0), nil},
-		"float_*int64":       {[]byte(`1.2`), new(int64), nil},
-		"float_int64":        {[]byte(`1.2`), int64(0), nil},
-		"float_*int32":       {[]byte(`1.2`), new(int32), nil},
-		"float_int32":        {[]byte(`1.2`), int32(0), nil},
-		"float_*int16":       {[]byte(`1.2`), new(int16), nil},
-		"float_int16":        {[]byte(`1.2`), int16(0), nil},
-		"float_*int8":        {[]byte(`1.2`), new(int8), nil},
-		"float_int8":         {[]byte(`1.2`), int8(0), nil},
-		"float_*int":         {[]byte(`1.2`), new(int), nil},
-		"float_int":          {[]byte(`1.2`), int(0), nil},
-		"float_*float64": {
-			[]byte(`1.2`),
-			new(float64),
-			func(t *testing.T, dest interface{}) {
-				f, ok := dest.(*float64)
-				if assert.True(t, ok) {
-					assert.Equal(t, float64(1.2), *f)
-				}
-			},
-		},
-		"float_float64":  {[]byte(`1.2`), float64(0), nil},
-		"float_*float32": {[]byte(`1.2`), new(float32), nil},
-		"float_float32":  {[]byte(`1.2`), float32(0), nil},
-		"float_*string":  {[]byte(`1.2`), new(string), nil},
-		"float_string":   {[]byte(`1.2`), "", nil},
+		"float_*uint64":      {[]byte(`1.2`), new(uint64), new(uint64)},
+		"float_uint64":       {[]byte(`1.2`), uint64(0), uint64(0)},
+		"float_*uint32":      {[]byte(`1.2`), new(uint32), new(uint32)},
+		"float_uint32":       {[]byte(`1.2`), uint32(0), uint32(0)},
+		"float_*uint16":      {[]byte(`1.2`), new(uint16), new(uint16)},
+		"float_uint16":       {[]byte(`1.2`), uint16(0), uint16(0)},
+		"float_*uint8":       {[]byte(`1.2`), new(uint8), new(uint8)},
+		"float_*uint8_long":  {[]byte(`12.3`), new(uint8), new(uint8)},
+		"float_*uint8_vlong": {[]byte(`1234567890.2`), new(uint8), new(uint8)},
+		"float_uint8":        {[]byte(`1.2`), uint8(0), uint8(0)},
+		"float_*uint":        {[]byte(`1.2`), new(uint), new(uint)},
+		"float_uint":         {[]byte(`1.2`), uint(0), uint(0)},
+		"float_*int64":       {[]byte(`1.2`), new(int64), new(int64)},
+		"float_int64":        {[]byte(`1.2`), int64(0), int64(0)},
+		"float_*int32":       {[]byte(`1.2`), new(int32), new(int32)},
+		"float_int32":        {[]byte(`1.2`), int32(0), int32(0)},
+		"float_*int16":       {[]byte(`1.2`), new(int16), new(int16)},
+		"float_int16":        {[]byte(`1.2`), int16(0), int16(0)},
+		"float_*int8":        {[]byte(`1.2`), new(int8), new(int8)},
+		"float_int8":         {[]byte(`1.2`), int8(0), int8(0)},
+		"float_*int":         {[]byte(`1.2`), new(int), new(int)},
+		"float_int":          {[]byte(`1.2`), int(0), int(0)},
+		"float_*float64":     {[]byte(`1.2`), new(float64), new(float64)},
+		"float_float64":      {[]byte(`1.2`), float64(0), float64(0)},
+		"float_*float32":     {[]byte(`1.2`), new(float32), new(float32)},
+		"float_float32":      {[]byte(`1.2`), float32(0), float32(0)},
+		"float_*string":      {[]byte(`1.2`), new(string), new(string)},
+		"float_string":       {[]byte(`1.2`), "", ""},
 
-		"negfloat_*interface{}": {[]byte(`-1.2`), new(interface{}), nil},
+		"negfloat_*interface{}": {[]byte(`-1.2`), new(interface{}), new(interface{})},
 		"negfloat_interface{}":  {[]byte(`-1.2`), nil, nil},
-		"negfloat_*uint64":      {[]byte(`-1.2`), new(uint64), nil},
-		"negfloat_uint64":       {[]byte(`-1.2`), uint64(0), nil},
-		"negfloat_*uint32":      {[]byte(`-1.2`), new(uint32), nil},
-		"negfloat_uint32":       {[]byte(`-1.2`), uint32(0), nil},
-		"negfloat_*uint16":      {[]byte(`-1.2`), new(uint16), nil},
-		"negfloat_uint16":       {[]byte(`-1.2`), uint16(0), nil},
-		"negfloat_*uint8":       {[]byte(`-1.2`), new(uint8), nil},
-		"negfloat_*uint8_long":  {[]byte(`-12.3`), new(uint8), nil},
-		"negfloat_*uint8_vlong": {[]byte(`-1234567890.2`), new(uint8), nil},
-		"negfloat_uint8":        {[]byte(`-1.2`), uint8(0), nil},
-		"negfloat_*uint":        {[]byte(`-1.2`), new(uint), nil},
-		"negfloat_uint":         {[]byte(`-1.2`), uint(0), nil},
-		"negfloat_*int64":       {[]byte(`-1.2`), new(int64), nil},
-		"negfloat_int64":        {[]byte(`-1.2`), int64(0), nil},
-		"negfloat_*int32":       {[]byte(`-1.2`), new(int32), nil},
-		"negfloat_int32":        {[]byte(`-1.2`), int32(0), nil},
-		"negfloat_*int16":       {[]byte(`-1.2`), new(int16), nil},
-		"negfloat_int16":        {[]byte(`-1.2`), int16(0), nil},
-		"negfloat_*int8":        {[]byte(`-1.2`), new(int8), nil},
-		"negfloat_int8":         {[]byte(`-1.2`), int8(0), nil},
-		"negfloat_*int":         {[]byte(`-1.2`), new(int), nil},
-		"negfloat_int":          {[]byte(`-1.2`), int(0), nil},
-		"negfloat_*float64": {
-			[]byte(`-1.2`),
-			new(float64),
-			func(t *testing.T, dest interface{}) {
-				f, ok := dest.(*float64)
-				if assert.True(t, ok) {
-					assert.Equal(t, float64(-1.2), *f)
-				}
-			},
-		},
-		"negfloat_float64":  {[]byte(`-1.2`), float64(0), nil},
-		"negfloat_*float32": {[]byte(`-1.2`), new(float32), nil},
-		"negfloat_float32":  {[]byte(`-1.2`), float32(0), nil},
-		"negfloat_*string":  {[]byte(`-1.2`), new(string), nil},
-		"negfloat_string":   {[]byte(`-1.2`), "", nil},
+		"negfloat_*uint64":      {[]byte(`-1.2`), new(uint64), new(uint64)},
+		"negfloat_uint64":       {[]byte(`-1.2`), uint64(0), uint64(0)},
+		"negfloat_*uint32":      {[]byte(`-1.2`), new(uint32), new(uint32)},
+		"negfloat_uint32":       {[]byte(`-1.2`), uint32(0), uint32(0)},
+		"negfloat_*uint16":      {[]byte(`-1.2`), new(uint16), new(uint16)},
+		"negfloat_uint16":       {[]byte(`-1.2`), uint16(0), uint16(0)},
+		"negfloat_*uint8":       {[]byte(`-1.2`), new(uint8), new(uint8)},
+		"negfloat_*uint8_long":  {[]byte(`-12.3`), new(uint8), new(uint8)},
+		"negfloat_*uint8_vlong": {[]byte(`-1234567890.2`), new(uint8), new(uint8)},
+		"negfloat_uint8":        {[]byte(`-1.2`), uint8(0), uint8(0)},
+		"negfloat_*uint":        {[]byte(`-1.2`), new(uint), new(uint)},
+		"negfloat_uint":         {[]byte(`-1.2`), uint(0), uint(0)},
+		"negfloat_*int64":       {[]byte(`-1.2`), new(int64), new(int64)},
+		"negfloat_int64":        {[]byte(`-1.2`), int64(0), int64(0)},
+		"negfloat_*int32":       {[]byte(`-1.2`), new(int32), new(int32)},
+		"negfloat_int32":        {[]byte(`-1.2`), int32(0), int32(0)},
+		"negfloat_*int16":       {[]byte(`-1.2`), new(int16), new(int16)},
+		"negfloat_int16":        {[]byte(`-1.2`), int16(0), int16(0)},
+		"negfloat_*int8":        {[]byte(`-1.2`), new(int8), new(int8)},
+		"negfloat_int8":         {[]byte(`-1.2`), int8(0), int8(0)},
+		"negfloat_*int":         {[]byte(`-1.2`), new(int), new(int)},
+		"negfloat_int":          {[]byte(`-1.2`), int(0), int(0)},
+		"negfloat_*float64":     {[]byte(`-1.2`), new(float64), new(float64)},
+		"negfloat_float64":      {[]byte(`-1.2`), float64(0), float64(0)},
+		"negfloat_*float32":     {[]byte(`-1.2`), new(float32), new(float32)},
+		"negfloat_float32":      {[]byte(`-1.2`), float32(0), float32(0)},
+		"negfloat_*string":      {[]byte(`-1.2`), new(string), new(string)},
+		"negfloat_string":       {[]byte(`-1.2`), "", ""},
+
+		"[3]int_*interface{}": {[]byte(`[1,2,3]`), new(interface{}), new(interface{})},
+		"[3]int_interface{}":  {[]byte(`[1,2,3]`), nil, nil},
+		"[3]int_*[]int":       {[]byte(`[1,2,3]`), new([]int), new([]int)},
+		"[3]int_[]int":        {[]byte(`[1,2,3]`), []int{}, []int{}},
+		"[3]int_*[](2)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 2); return &i }(),
+			func() *[]int { i := make([]int, 2); return &i }()},
+		"[3]int_[](2)int": {[]byte(`[1,2,3]`), make([]int, 2), make([]int, 2)},
+		"[3]int_*[](3)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 3); return &i }(),
+			func() *[]int { i := make([]int, 3); return &i }()},
+		"[3]int_[](3)int": {[]byte(`[1,2,3]`), make([]int, 3), make([]int, 3)},
+		"[3]int_*[](4)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 4); return &i }(),
+			func() *[]int { i := make([]int, 4); return &i }()},
+		"[3]int_[](4)int": {[]byte(`[1,2,3]`), make([]int, 4), make([]int, 4)},
+		"[3]int_*[](0,2)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 0, 2); return &i }(),
+			func() *[]int { i := make([]int, 0, 2); return &i }()},
+		"[3]int_[](0,2)int": {[]byte(`[1,2,3]`), make([]int, 0, 2), make([]int, 0, 2)},
+		"[3]int_*[](0,3)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 0, 3); return &i }(),
+			func() *[]int { i := make([]int, 0, 3); return &i }()},
+		"[3]int_[](0,3)int": {[]byte(`[1,2,3]`), make([]int, 0, 3), make([]int, 0, 3)},
+		"[3]int_*[](0,4)int": {[]byte(`[1,2,3]`), func() *[]int { i := make([]int, 0, 4); return &i }(),
+			func() *[]int { i := make([]int, 0, 4); return &i }()},
+		"[3]int_[](0,4)int": {[]byte(`[1,2,3]`), make([]int, 0, 4), make([]int, 0, 4)},
+		"[3]int_*[2]int":    {[]byte(`[1,2,3]`), new([2]int), new([2]int)},
+		"[3]int_[2]int":     {[]byte(`[1,2,3]`), [2]int{}, [2]int{}},
+		"[3]int_*[3]int":    {[]byte(`[1,2,3]`), new([3]int), new([3]int)},
+		"[3]int_[3]int":     {[]byte(`[1,2,3]`), [3]int{}, [3]int{}},
+		"[3]int_*[4]int":    {[]byte(`[1,2,3]`), new([4]int), new([4]int)},
+		"[3]int_[4]int":     {[]byte(`[1,2,3]`), [4]int{}, [4]int{}},
+		"[3]int_*[]string":  {[]byte(`[1,2,3]`), new([]string), new([]string)},
+		"[3]int_[]string":   {[]byte(`[1,2,3]`), []string{}, []string{}},
+		"[3]int_*int":       {[]byte(`[1,2,3]`), new(int), new(int)},
+		"[3]int_int":        {[]byte(`[1,2,3]`), 0, 0},
+		// This exercises inputs too large for destination arrays, the addional 2 arrays help with a difference in how
+		// encoding/json assings capacity in the slices
+		"[][4]int_*[]2int": {[]byte(`[[1,2,3,4],[5,6,7,8],[],[]]`), new([][2]int), new([][2]int)},
+		// TODO this one doesn't work yet
+		// "[3]int_*[]*int": {[]byte(`[1,2,3]`), new([]*int), new([]*int)},
+		"[3]float_*[]int":       {[]byte(`[1.2,1.2,1.3]`), new([]int), new([]int)},
+		"[1][1]int_*[][]string": {[]byte(`[[1]]`), new([][]string), new([][]string)},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Log(string(tt.input))
-			errJ := json.NewDecoder(bytes.NewBuffer(tt.input)).Decode(tt.dest)
+			errJ := json.NewDecoder(bytes.NewBuffer(tt.input)).Decode(tt.destJ)
 			err := NewDecoder(bytes.NewBuffer(tt.input)).Decode(tt.dest)
-			if tt.check != nil {
-				tt.check(t, tt.dest)
+			if errJ == nil {
+				// There are differences when errJ != nil, such as in test: '[3]int_*[]string'
+				t.Log("Expected: ", tt.destJ)
+				t.Log("Actual  : ", tt.dest)
+				assert.Equal(t, tt.destJ, tt.dest)
+				if reflect.ValueOf(tt.destJ).Kind() == reflect.Ptr && reflect.ValueOf(tt.destJ).Elem().Kind() == reflect.Slice {
+					assert.Equal(t, reflect.ValueOf(tt.destJ).Elem().Cap(), reflect.ValueOf(tt.dest).Elem().Cap(), "bad capacity")
+				}
 			}
 			eqaulError(t, errJ, err)
 		})
@@ -456,6 +474,8 @@ func BenchmarkDecode(b *testing.B) {
 }
 
 func eqaulError(t *testing.T, expected, err error) {
+	t.Log("expected error: ", expected)
+	t.Log("actual error  : ", err)
 	switch expected := expected.(type) {
 	case *json.SyntaxError:
 		assert.EqualError(t, err, expected.Error())
