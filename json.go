@@ -32,9 +32,10 @@ var (
 		't': true,
 		'f': false,
 	}
-	boolEnd = map[byte][]byte{
+	endOf = map[byte][]byte{
 		't': []byte(`rue`),
 		'f': []byte(`alse`),
+		'n': []byte(`ull`),
 	}
 )
 
@@ -75,6 +76,8 @@ func (d *Decoder) readValue(c byte, v reflect.Value) error {
 			return d.readString(v)
 		case 't', 'f':
 			return d.readBool(c, v)
+		case 'n':
+			return d.readNull()
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			return d.readUint(c, v)
 		case '-':
@@ -315,21 +318,40 @@ func (d *Decoder) readBool(b byte, v reflect.Value) error {
 		c   byte
 		err error
 	)
-	for i := range boolEnd[b] {
+	for i := range endOf[b] {
 		if c, err = d.readByte(); err != nil {
 			if err == io.EOF {
 				return io.ErrUnexpectedEOF
 			}
 			return err
 		}
-		if c != boolEnd[b][i] {
-			return d.syntaxErrorf("invalid character %q in literal %v (expecting %q)", c, boolMap[b], boolEnd[b][i])
+		if c != endOf[b][i] {
+			return d.syntaxErrorf("invalid character %q in literal %v (expecting %q)", c, boolMap[b], endOf[b][i])
 		}
 	}
 	if v.Elem().Kind() != reflect.Bool && v.Elem().Kind() != reflect.Interface {
 		return d.unmarshalTypeError("bool", v.Elem().Type())
 	}
 	v.Elem().Set(reflect.ValueOf(boolMap[b]))
+	return nil
+}
+
+func (d *Decoder) readNull() error {
+	var (
+		c   byte
+		err error
+	)
+	for i := range endOf['n'] {
+		if c, err = d.readByte(); err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
+			return err
+		}
+		if c != endOf['n'][i] {
+			return d.syntaxErrorf("invalid character %q in literal null (expecting %q)", c, endOf['n'][i])
+		}
+	}
 	return nil
 }
 

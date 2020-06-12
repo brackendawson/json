@@ -22,6 +22,12 @@ func TestDecode(t *testing.T) {
 		"empty json": []byte(``),
 		"invalid":    []byte(`lol`),
 
+		"null":         []byte(`null`),
+		"short null":   []byte(`nul`),
+		"shorter null": []byte(`n`),
+		"wrong null":   []byte(`nil`),
+		"trailed null": []byte(`[null,1]`),
+
 		"true":          []byte(`true`),
 		"false":         []byte(`false`),
 		"invalid true":  []byte(`ture`),
@@ -36,6 +42,7 @@ func TestDecode(t *testing.T) {
 		"empty string":        []byte(`""`),
 		"small string":        []byte(`" "`),
 		"string":              []byte(`"string"`),
+		"path string":         []byte(`"/usr/local/bin/go"`),
 		"longer string":       []byte(`"longer string`),
 		"emoji string":        []byte(`"🚀"`),
 		"more emoji string":   []byte(`"I 👏 love 👏 emoji 👏"`),
@@ -278,6 +285,19 @@ func TestDecodeToTypes(t *testing.T) {
 		input       []byte
 		destJ, dest interface{}
 	}{
+		"null_*interface{}": {[]byte(`null`), new(interface{}), new(interface{})},
+		"null_interface{}":  {[]byte(`null`), nil, nil},
+		"null_*string":      {[]byte(`null`), new(string), new(string)},
+		"null_string":       {[]byte(`null`), "", ""},
+		"null_*uint":        {[]byte(`null`), new(uint), new(uint)},
+		"null_uint":         {[]byte(`null`), uint(0), uint(0)},
+		"null_*int":         {[]byte(`null`), new(int), new(int)},
+		"null_int":          {[]byte(`null`), 0, 0},
+		"null_*float":       {[]byte(`null`), new(float64), new(float64)},
+		"null_float":        {[]byte(`null`), float64(0), float64(0)},
+		"null_*bool":        {[]byte(`null`), new(bool), new(bool)},
+		"null_bool":         {[]byte(`null`), false, false},
+
 		"string_*interface{}": {[]byte(`"string"`), new(interface{}), new(interface{})},
 		"string_interface{}":  {[]byte(`"string"`), nil, nil},
 		"string_*string":      {[]byte(`"string"`), new(string), new(string)},
@@ -512,6 +532,7 @@ func TestDecodeReadError(t *testing.T) {
 	tests := map[string]string{
 		"fist read":   ``,
 		"second read": ` `,
+		"null":        `n`,
 		"read string": `"`,
 		"unescape":    `"\`,
 		"bool":        `t`,
