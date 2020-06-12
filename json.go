@@ -6,8 +6,6 @@ package json
 
 import (
 	"bufio"
-	"errors"
-	"fmt"
 	"io"
 	"reflect"
 	"strconv"
@@ -38,40 +36,7 @@ var (
 		't': []byte(`rue`),
 		'f': []byte(`alse`),
 	}
-	TODO = errors.New("TODO")
 )
-
-type SyntaxError struct {
-	msg    string
-	Offset int64
-}
-
-func (s *SyntaxError) Error() string {
-	return s.msg
-}
-
-type InvalidUnmarshalError struct {
-	Type reflect.Type
-}
-
-func (i *InvalidUnmarshalError) Error() string {
-	if i.Type == nil {
-		return "json: Unmarshal(nil)"
-	}
-	return "json: Unmarshal(non-pointer " + i.Type.String() + ")"
-}
-
-type UnmarshalTypeError struct {
-	Value  string
-	Type   reflect.Type
-	Offset int64
-	Struct string
-	Field  string
-}
-
-func (u *UnmarshalTypeError) Error() string {
-	return "json: cannot unmarshal " + u.Value + " into Go value of type " + u.Type.String()
-}
 
 type Decoder struct {
 	in     *bufio.Reader
@@ -552,19 +517,4 @@ func (d *Decoder) unEscape() (byte, error) {
 		return 0, d.syntaxErrorf("invalid character %q in string escape code", c)
 	}
 	return ec, nil
-}
-
-func (d *Decoder) syntaxErrorf(format string, a ...interface{}) *SyntaxError {
-	return &SyntaxError{
-		msg:    fmt.Sprintf(format, a...),
-		Offset: d.offset,
-	}
-}
-
-func (d *Decoder) unmarshalTypeError(value string, t reflect.Type) *UnmarshalTypeError {
-	return &UnmarshalTypeError{
-		Value:  value,
-		Type:   t,
-		Offset: d.offset,
-	}
 }
